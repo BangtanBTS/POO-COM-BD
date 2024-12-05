@@ -903,62 +903,88 @@ def crud_frete(cursor, conn):
             print("Opção inválida!")
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #PARTE FINAL DO TRABALHO 
-def arrecadacao_por_cidade_estado(cursor, estado):
+
+def arrecadacao_icms_por_estado_destino_2024(cursor, estado):
     try:
         query = """
             SELECT
-                c.nome_cidade AS cidade,
                 e.uf AS estado,
-                COUNT(f.num_conhecimento) AS quantidade_fretes,
-                SUM(f.valor) AS valor_total_arrecadado
+                c.nome_cidade AS cidade,
+                COUNT(f.num_conhecimento) AS quantidade_fretes,  -- Contar o número de fretes
+                SUM(
+                    CASE 
+                        WHEN f.peso_ou_valor = 'P' THEN f.peso   -- Calcular o frete com base no peso
+                        WHEN f.peso_ou_valor = 'V' THEN f.valor  -- Calcular o frete com base no valor
+                        ELSE 0
+                    END * (f.icms / 100)                         -- Aplicar o ICMS ao frete
+                ) AS icms_total_arrecadado
             FROM Frete f
             JOIN Cidade c ON f.destino = c.codigo_cidade
             JOIN Estado e ON c.uf = e.uf
             WHERE e.uf = %s AND EXTRACT(YEAR FROM f.data_frete) = 2024
-            GROUP BY c.nome_cidade, e.uf
-            ORDER BY valor_total_arrecadado DESC;
+            GROUP BY e.uf, c.nome_cidade
+            ORDER BY icms_total_arrecadado DESC;
         """
         cursor.execute(query, (estado,))
-        resultado = cursor.fetchall()
-        colunas = ["Cidade", "Estado", "Quantidade de Fretes", "Valor Total Arrecadado"]
-        print(tabulate(resultado, headers=colunas, tablefmt="fancy_grid"))
+        resultados = cursor.fetchall()
+        if resultados:
+            colunas = ["Estado", "Cidade", "Quantidade de Fretes", "ICMS Total Arrecadado"]
+            print(tabulate(resultados, headers=colunas, tablefmt="fancy_grid"))
+        else:
+            print(f"Não foram encontrados fretes com destino ao estado '{estado}' no ano de 2024.")
     except Exception as e:
-        print("Erro ao calcular arrecadação por cidade/estado:", e)
+        print("Erro ao calcular arrecadação de ICMS por estado (destino em 2024):", e)
 
 def media_fretes_por_cidade_estado(cursor, estado):
     try:
         query = """
             SELECT
-                c.nome_cidade AS cidade,
                 e.uf AS estado,
-                AVG(fretes_origem) AS media_fretes_origem,
-                AVG(fretes_destino) AS media_fretes_destino
-            FROM (
-                SELECT
-                    origem AS cidade_id,
-                    COUNT(*) AS fretes_origem,
-                    0 AS fretes_destino
-                FROM Frete
-                GROUP BY origem
-                UNION ALL
-                SELECT
-                    destino AS cidade_id,
-                    0 AS fretes_origem,
-                    COUNT(*) AS fretes_destino
-                FROM Frete
-                GROUP BY destino
-            ) subquery
-            JOIN Cidade c ON subquery.cidade_id = c.codigo_cidade
+                c.nome_cidade AS cidade,
+                -- Média de fretes de origem considerando peso ou valor
+                COALESCE(
+                    SUM(
+                        CASE 
+                            WHEN f.peso_ou_valor = 'P' AND f.origem = c.codigo_cidade THEN f.peso
+                            WHEN f.peso_ou_valor = 'V' AND f.origem = c.codigo_cidade THEN f.valor
+                            ELSE 0
+                        END
+                    ) /
+                    NULLIF(
+                        COUNT(CASE WHEN f.origem = c.codigo_cidade THEN 1 ELSE NULL END), 0
+                    ), 0
+                ) AS media_fretes_origem,
+                -- Média de fretes de destino considerando peso ou valor
+                COALESCE(
+                    SUM(
+                        CASE 
+                            WHEN f.peso_ou_valor = 'P' AND f.destino = c.codigo_cidade THEN f.peso 
+                            WHEN f.peso_ou_valor = 'V' AND f.destino = c.codigo_cidade THEN f.valor
+                            ELSE 0
+                        END
+                    ) /
+                    NULLIF(
+                        COUNT(CASE WHEN f.destino = c.codigo_cidade THEN 1 ELSE NULL END), 0
+                    ), 0
+                ) AS media_fretes_destino
+            FROM Frete f
+            JOIN Cidade c ON f.origem = c.codigo_cidade OR f.destino = c.codigo_cidade
             JOIN Estado e ON c.uf = e.uf
             WHERE e.uf = %s
-            GROUP BY c.nome_cidade, e.uf;
+            GROUP BY e.uf, c.nome_cidade
+            ORDER BY c.nome_cidade;
         """
         cursor.execute(query, (estado,))
-        resultado = cursor.fetchall()
-        colunas = ["Estado", "Cidade", "Média Fretes Origem", "Média Fretes Destino"]
-        print(tabulate(resultado, headers=colunas, tablefmt="fancy_grid"))
+        resultados = cursor.fetchall()
+        if resultados:
+            colunas = ["Estado", "Cidade", "Média Fretes Origem", "Média Fretes Destino"]
+            print(tabulate(resultados, headers=colunas, tablefmt="fancy_grid"))
+        else:
+            print(f"Não foram encontrados fretes para o estado '{estado}'.")
     except Exception as e:
         print("Erro ao calcular médias de fretes por cidade/estado:", e)
+
+
 
 def fretes_pessoas_juridicas_por_mes(cursor, mes, ano):
     try:
@@ -996,9 +1022,9 @@ def main():
                 print("5. CRUD Pessoa Jurídica")
                 print("6. CRUD Pessoa Física")
                 print("7. CRUD Frete")
-                print("8. Arecadação pro cidade/estado")
+                print("8. Arecadação ICMS por cidade/estado de destino em 2024")
                 print("9. Media fretes por cidade/estado")
-                print("10. Fretes pessoas juridicas por mes")
+                print("10. Fretes pessoas juridicas por mes/ano")
                 print("0. Sair")
                 choice = input("Escolha uma opção: ")
                 if choice == "1":
@@ -1017,7 +1043,9 @@ def main():
                     crud_frete(cursor, conn)
                 elif choice == "8":
                      estado = input("Digite o estado (UF): ")
-                     arrecadacao_por_cidade_estado(cursor, estado)
+                     arrecadacao_icms_por_estado_destino_2024(cursor, estado)
+                     (cursor, estado)
+                     (cursor, estado)
                 elif choice == "9":
                      estado = input("Digite o estado (UF): ")
                      media_fretes_por_cidade_estado(cursor, estado)
