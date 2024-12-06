@@ -977,7 +977,7 @@ def media_fretes_por_cidade_estado(cursor, estado):
         cursor.execute(query, (estado,))
         resultados = cursor.fetchall()
         if resultados:
-            colunas = ["Estado", "Cidade", "Média Fretes Origem", "Média Fretes Destino"]
+            colunas = ["Estado", "Cidade", "Média Fretes Origem (Valor arrecadado)", "Média Fretes Destino (valor arrecadado)"]
             print(tabulate(resultados, headers=colunas, tablefmt="fancy_grid"))
         else:
             print(f"Não foram encontrados fretes para o estado '{estado}'.")
